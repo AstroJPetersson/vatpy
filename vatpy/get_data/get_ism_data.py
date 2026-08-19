@@ -179,7 +179,8 @@ def get_ism_time_integrated_data(output_dir, n, N, bin_edges_dens,
 
 
 def get_phase_diagram_data(output_dir, N, bins_dens, bins_temp, bins_pres=None,
-                           bins_abun=None, Rcut=None, colorcode='H'):
+                           bins_abun=None, Rcut=None, Zcut=None,
+                           colorcode='H'):
     '''TODO
     '''
     # Snapshot selection:
@@ -221,10 +222,18 @@ def get_phase_diagram_data(output_dir, N, bins_dens, bins_temp, bins_pres=None,
     xH2, xHII, xCO = abun[:, 0], abun[:, 1], abun[:, 2]
     xHI = 1 - 2*xH2 - xHII
 
+    # Masks:
     if Rcut:
-        mask_radius = np.linalg.norm(pos - boxsize/2, axis=1) < Rcut
+        mask_r = np.linalg.norm(pos[:, :2] - boxsize/2, axis=1) < Rcut
     else:
-        mask_radius = np.full(len(pos), True)
+        mask_r = np.full(len(pos), True)
+
+    if Zcut:
+        mask_z = np.abs(pos[:, 2] - boxsize/2) < Zcut
+    else:
+        mask_z = np.full(len(pos), True)
+
+    mask_total = mask_r * mask_z
 
     # Weights:
     if colorcode == 'H':
@@ -233,10 +242,10 @@ def get_phase_diagram_data(output_dir, N, bins_dens, bins_temp, bins_pres=None,
         weights = mass_H2
 
     # Temperature vs density:
-    H, xedges, yedges = np.histogram2d(np.log10(num_H[mask_radius]),
-                                       np.log10(temp[mask_radius]),
+    H, xedges, yedges = np.histogram2d(np.log10(num_H[mask_total]),
+                                       np.log10(temp[mask_total]),
                                        bins=(bins_dens, bins_temp),
-                                       weights=weights[mask_radius])
+                                       weights=weights[mask_total])
     with np.errstate(divide='ignore'):
         data['hist2d_T_vs_rho'] = np.log10(H.T)
         data['hist2d_T_vs_rho_bin_xedges'] = xedges
@@ -245,11 +254,11 @@ def get_phase_diagram_data(output_dir, N, bins_dens, bins_temp, bins_pres=None,
                                    yedges[-1]]
 
     # Pressure vs density:
-    if bins_pres:
-        H, xedges, yedges = np.histogram2d(np.log10(num_H[mask_radius]),
-                                           np.log10(thermpres[mask_radius]),
+    if bins_pres is not None:
+        H, xedges, yedges = np.histogram2d(np.log10(num_H[mask_total]),
+                                           np.log10(thermpres[mask_total]),
                                            bins=(bins_dens, bins_pres),
-                                           weights=weights[mask_radius])
+                                           weights=weights[mask_total])
         with np.errstate(divide='ignore'):
             data['hist2d_Ptherm_vs_rho'] = np.log10(H.T)
             data['hist2d_Ptherm_vs_rho_bin_xedges'] = xedges
@@ -258,11 +267,11 @@ def get_phase_diagram_data(output_dir, N, bins_dens, bins_temp, bins_pres=None,
                                             yedges[-1]]
 
     # Hydrogen abundance vs temperature:
-    if bins_abun:
-        H, xedges, yedges = np.histogram2d(np.log10(temp[mask_radius]),
-                                           xHI[mask_radius],
+    if bins_abun is not None:
+        H, xedges, yedges = np.histogram2d(np.log10(temp[mask_total]),
+                                           xHI[mask_total],
                                            bins=(bins_temp, bins_abun),
-                                           weights=weights[mask_radius])
+                                           weights=weights[mask_total])
         with np.errstate(divide='ignore'):
             data['hist2d_xHI_vs_T'] = np.log10(H.T)
             data['hist2d_xHI_vs_T_bin_xedges'] = xedges
