@@ -25,11 +25,11 @@ import configv
 
 # -------------- TerminalPlot
 class TerminalPlot:
-    '''Class to make simple, but informative, visual plots of Arepo snapshots,
+    '''Class to make simple, but informative, visual plots of AREPO snapshots,
     directly in the terminal (or notebook). Most importantly, it contains
     funtions to generate column density maps of the gas surface density, as
-    well column density maps of various chemical species, such as HI, HII, and
-    H2. The class also contains functions to inspect the surface density of
+    well as column density maps of various chemical species, such as HI, HII,
+    and H2. The class also contains functions to inspect the surface density of
     dark matter and stellar components. For more details, see each function's
     individual description.
 
@@ -552,6 +552,56 @@ class TerminalPlot:
 
     ##########################################################################
     ##########################################################################
+    def isrfield(self, axis='z', rotate=0, bins=100, interpolation='kdtree',
+                 bhfocus=False, funcname='isrfield', xrange=None, yrange=None,
+                 zrange=None, box=None, cut=None):
+        '''TODO
+        '''
+        # Read the data:
+        print(f'  * Reading data of {self.file}')
+        h, iu = read_hdf5(file=self.file)
+        boxsize = h['Header'].attrs['BoxSize'] * iu['ulength'] / self.ulength
+        time = h['Header'].attrs['Time'] * iu['utime'] / const['Myr']
+        pos = h['PartType0']['Coordinates'] * iu['ulength'] / self.ulength
+        dens = h['PartType0']['Density'] * iu['udens']
+        flux = h['PartType0']['PhotonFlux'][:]
+        lwrad = flux[:, 1]
+
+        print('  * Generating a ISRF (density-weighted) map')
+
+        # Centre the data on the black hole:
+        if bhfocus:
+            bh = (h['PartType5']['Coordinates'][0] * iu['ulength']
+                  / self.ulength)
+            pos -= bh
+
+        # Coordinate ranges:
+        xrange, yrange, zrange = self.get_ranges(boxsize=boxsize, box=box,
+                                                 xrange=xrange, yrange=yrange,
+                                                 zrange=zrange,
+                                                 bhfocus=bhfocus)
+
+        # Rotation of particle positions:
+        pos = self.do_rotation(boxsize=boxsize, axis=axis, rotate=rotate,
+                               pos=pos, bhfocus=bhfocus)
+
+        # Interpolation:
+        if interpolation == 'kdtree':
+            interpBfield = interpolate_to_2d_kdtree(pos=pos, unit=self.ulength,
+                                                    values=bfield_tot,
+                                                    bins=bins, xrange=xrange,
+                                                    yrange=yrange,
+                                                    zrange=zrange, cut=cut,
+                                                    weights=dens)
+        else:
+            interpBfield = interpolate_to_2d(pos=pos, unit=self.ulength,
+                                             values=bfield, bins=bins,
+                                             xrange=xrange, yrange=yrange,
+                                             zrange=zrange, cut=cut,
+                                             weights=dens)
+
+    ##########################################################################
+    ##########################################################################
     def resolution(self, bins=100, levels=5, smooth=0, funcname='resol'):
         '''
         Description: TODO
@@ -1049,32 +1099,43 @@ class TerminalPlot:
 
     ##########################################################################
     ##########################################################################
-    def star_formation_rate(self, funcname='sfr'):
+    def star_formation_rate(self, compare_to_snapshot=None, funcname='sfr'):
         '''TODO
         '''
-        # Read the data:
-        print(f'  * Reading data of {self.file}')
-        h, iu = read_hdf5(file=self.file)
-        time = h['Header'].attrs['Time'] * iu['utime'] / const['Myr']
-        pos_stars = (h['PartType4']['Coordinates'] * iu['ulength']
-                     / const['kpc'])
-        mass_stars = h['PartType4']['Masses'] * iu['umass'] / const['Msol']
-        time_stars = (h['PartType4']['StellarFormationTime'] * iu['utime']
-                      / const['Myr'])
 
-        bins = np.arange(0, time+10, 10)
-        bins[-1] = time
-        SFR, bin_edges = np.histogram(time_stars, bins=bins,
-                                      weights=mass_stars)
-        bin_mids = (bin_edges[:-1] + bin_edges[1:]) / 2
-        bin_widths = (bin_edges[1:] - bin_edges[:-1])
-        SFR = np.log10(SFR / (bin_widths * 1e6))
+        # In case additional snapshots are given:
+        list_of_snapshots = [self.file]
+        if compare_to_snapshot is not None:
+            [list_of_snapshots.append(f) for f in compare_to_snapshot]
 
+        # Figure:
         fig, ax = plt.subplots(figsize=(6, 4.5), layout='constrained')
-        ax.plot(bin_mids, SFR, lw=2)
+
+        # Loop over snapshots:
+        for snapshot in list_of_snapshots:
+            print(f'  * Reading data of {snapshot}')
+            h, iu = read_hdf5(file=snapshot)
+            time = h['Header'].attrs['Time'] * iu['utime'] / const['Myr']
+            pos_stars = (h['PartType4']['Coordinates'] * iu['ulength']
+                         / const['kpc'])
+            mass_stars = h['PartType4']['Masses'] * iu['umass'] / const['Msol']
+            time_stars = (h['PartType4']['StellarFormationTime'] * iu['utime']
+                          / const['Myr'])
+
+            bins = np.arange(0, time+10, 10)
+            bins[-1] = time
+            SFR, bin_edges = np.histogram(time_stars, bins=bins,
+                                          weights=mass_stars)
+            bin_mids = (bin_edges[:-1] + bin_edges[1:]) / 2
+            bin_widths = (bin_edges[1:] - bin_edges[:-1])
+            SFR = np.log10(SFR / (bin_widths * 1e6))
+
+            ax.plot(bin_mids, SFR, lw=2)
+
+        # Make plot look nice:
         ax.set_xlabel('Time [Myr]')
-        ax.set_ylabel(r'$\log_{10}(\text{SFR}$' +
-                      r'$ \ [\text{M}_\odot \ \text{yr}^{-1}])$')
+        ax.set_ylabel(
+            r'$\log_{10}(\text{SFR} \ [\text{M}_\odot \ \text{yr}^{-1}])$')
         ax.grid()
 
         # Save:
