@@ -1,6 +1,6 @@
-# Description: File containing the TerminalPlot class.
+# Description: File containing the VPlot class.
 # Authour(s): Jonathan Petersson
-# Last updated: 2025-08-27
+# Last updated: 2026-08-20
 
 
 # -------------- Required packages
@@ -9,6 +9,7 @@ import numpy as np
 import cmasher as cmr
 import matplotlib as mpl
 import matplotlib.pyplot as plt
+import plotext as pltext
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from scipy.spatial.transform import Rotation
 from scipy.ndimage import gaussian_filter
@@ -23,8 +24,8 @@ from .get_data.get_black_hole_data import get_black_hole_data
 import configv
 
 
-# -------------- TerminalPlot
-class TerminalPlot:
+# -------------- Plot
+class Plot:
     '''Class to make simple, but informative, visual plots of AREPO snapshots,
     directly in the terminal (or notebook). Most importantly, it contains
     funtions to generate column density maps of the gas surface density, as
@@ -36,7 +37,7 @@ class TerminalPlot:
     Args:
         file (str): File to analyse
         style (str): Matplotlib style option
-        path (str): Path to save file(s) at
+        save (str): Path to save file(s) at
         name (str): Name to save file(s) as
         format (str): Format to save file(s) as (e.g. png/jpg/pdf/tiff)
         vmin (float): Global vmin value
@@ -46,7 +47,7 @@ class TerminalPlot:
         ulengthselect (str): Unit length (see configv.py for more details)
         show (bool): If True, try to display the generated figure(s)
     '''
-    def __init__(self, file, style=configv.mplstyle, path='./vplots',
+    def __init__(self, file, style=configv.mplstyle, save='./vplots',
                  name=None, format='png', vmin=None, vmax=None, xlim=None,
                  ylim=None, ulengthselect=configv.unit_for_length, show=True,
                  noxylabels=False, noxyticks=False):
@@ -55,7 +56,7 @@ class TerminalPlot:
 
         # Variables:
         self.file = file
-        self.path = path
+        self.save = save
         self.name = name
         self.format = format
         self.vmin, self.vmax = vmin, vmax
@@ -123,7 +124,7 @@ class TerminalPlot:
 
         return pos
 
-    def save(self, fig, funcname):
+    def savefig(self, fig, funcname):
         '''
         Description: Function to save figures.
         '''
@@ -141,7 +142,7 @@ class TerminalPlot:
         figname += f'.{self.format}'
 
         # Check if Vatpy plot directory already exists:
-        if os.path.isdir(self.path):
+        if os.path.isdir(self.save):
             print('  * Path to save figure at detected')
         else:
             print('  * Path to save figure at NOT detected')
@@ -149,10 +150,10 @@ class TerminalPlot:
             os.mkdir(f'{os.getcwd()}/vplots/')
 
         # Save figure:
-        fig.savefig(f'{self.path}/{figname}')
+        fig.savefig(f'{self.save}/{figname}')
         print('  * Figure saved as')
         print(f'    - name: {figname}')
-        print(f'    - at: {self.path}')
+        print(f'    - at: {self.save}')
 
         return None
 
@@ -167,6 +168,33 @@ class TerminalPlot:
         else:
             print('  * Display of figure is now running')
             plt.show()
+
+        return None
+
+    def map_options(self, ax, time):
+        ax.set_aspect('equal')
+
+        # x/y labels:
+        if not self.noxylabels:
+            ax.set_xlabel(f'$x$ [{self.ulengthselect}]')
+            ax.set_ylabel(f'$y$ [{self.ulengthselect}]')
+        ax.set_xlim(self.xlim)
+        ax.set_ylim(self.ylim)
+
+        # x/y ticks:
+        if self.noxyticks:
+            ax.set_xticks([])
+            ax.set_yticks([])
+            xtext = int(ax.get_xlim()[1] - ax.get_xlim()[0])
+            ytext = int(ax.get_ylim()[1] - ax.get_ylim()[0])
+            ax.text(0, 1, f'{xtext}x{ytext} {self.ulengthselect}', color='k',
+                    ha='left', va='bottom', transform=ax.transAxes)
+
+        # Add snapshot time:
+        ax.text(0.95, 0.05, f'{time:.2f} Myr', color='k', ha='right',
+                va='bottom', transform=ax.transAxes,
+                bbox={'facecolor': 'white', 'edgecolor': 'none',
+                      'boxstyle': 'round', 'alpha': 0.5})
 
         return None
 
@@ -232,6 +260,17 @@ class TerminalPlot:
 
         return None
 
+    def check_radiation(self):
+        # Read the data:
+        h, iu = read_hdf5(file=self.file)
+
+        
+
+        # Close the data:
+        h.close()
+
+        return None
+
     ##########################################################################
     ##########################################################################
     def density(self, axis='z', rotate=0, quantity='mass', bins=100,
@@ -257,7 +296,6 @@ class TerminalPlot:
         dens = h['PartType0']['Density'] * iu['udens']
         time = h['Header'].attrs['Time'] * iu['utime'] / const['Myr']
         boxsize = h['Header'].attrs['BoxSize'] * iu['ulength'] / self.ulength
-
         print('  * Generating a gas surface density map')
 
         # Parameters related to black hole(s):
@@ -273,10 +311,9 @@ class TerminalPlot:
             pos -= bh[0]
 
         # Coordinate ranges:
-        xrange, yrange, zrange = self.get_ranges(boxsize=boxsize, box=box,
-                                                 xrange=xrange, yrange=yrange,
-                                                 zrange=zrange,
-                                                 bhfocus=bhfocus)
+        xrange, yrange, zrange = self.get_ranges(
+            boxsize=boxsize, box=box, xrange=xrange, yrange=yrange,
+            zrange=zrange, bhfocus=bhfocus)
 
         # Selection of gas quantity:
         if (quantity != 'mass'):
@@ -289,22 +326,18 @@ class TerminalPlot:
 
         # Interpolation:
         if interpolation == 'kdtree':
-            interpDens = interpolate_to_2d_kdtree(pos=pos, unit=self.ulength,
-                                                  values=dens, bins=bins,
-                                                  xrange=xrange, yrange=yrange,
-                                                  zrange=zrange, cut=cut)
+            interpDens = interpolate_to_2d_kdtree(
+                pos=pos, unit=self.ulength, values=dens, bins=bins,
+                xrange=xrange, yrange=yrange, zrange=zrange, cut=cut)
         else:
-            interpDens = interpolate_to_2d(pos=pos, unit=self.ulength,
-                                           values=dens, bins=bins,
-                                           xrange=xrange, yrange=yrange,
-                                           zrange=zrange, cut=cut)
+            interpDens = interpolate_to_2d(
+                pos=pos, unit=self.ulength, values=dens, bins=bins,
+                xrange=xrange, yrange=yrange, zrange=zrange, cut=cut)
 
         # Figure:
         fig, ax = plt.subplots(figsize=(8, 6.4))
         fig.subplots_adjust(left=0.18, right=0.82, bottom=0.14, top=0.94,
                             wspace=0, hspace=0)
-
-        # Gas column density:
         im = ax.imshow(np.log10(interpDens), vmin=self.vmin, vmax=self.vmax,
                        extent=(xrange[0], xrange[1], yrange[0], yrange[1]),
                        origin='lower', cmap=configv.cmap['gas'])
@@ -319,27 +352,6 @@ class TerminalPlot:
                                   pos=bh, boxcenter=boxcenter,
                                   bhfocus=bhfocus)
             ax.scatter(bh[:, 0], bh[:, 1], s=40, c='k', marker='o')
-
-        # Infos:
-        ax.text(0.95, 0.05, f'{time:.2f} Myr', color='k',
-                ha='right', va='bottom', transform=ax.transAxes,
-                bbox={'facecolor': 'white', 'edgecolor': 'none',
-                      'boxstyle': 'round', 'alpha': 0.5})
-
-        # Plot options:
-        ax.set_aspect('equal')
-        if not self.noxylabels:
-            ax.set_xlabel(f'$x$ [{self.ulengthselect}]')
-            ax.set_ylabel(f'$y$ [{self.ulengthselect}]')
-        ax.set_xlim(self.xlim)
-        ax.set_ylim(self.ylim)
-        if self.noxyticks:
-            ax.set_xticks([])
-            ax.set_yticks([])
-            xtext = int(ax.get_xlim()[1] - ax.get_xlim()[0])
-            ytext = int(ax.get_ylim()[1] - ax.get_ylim()[0])
-            ax.text(0, 1, f'{xtext}x{ytext} {self.ulengthselect}', color='k',
-                    ha='left', va='bottom', transform=ax.transAxes)
 
         # Colorbar:
         if not cut:
@@ -368,9 +380,12 @@ class TerminalPlot:
         cax = div.append_axes('right', size='5%', pad=0)
         fig.colorbar(im, cax=cax, label=cbar_label[quantity])
 
-        # Save:
+        # Map options:
+        self.map_options(ax, time)
+
+        # Save figure:
         print('  * Figure generated successfully!')
-        self.save(fig=fig, funcname=funcname)
+        self.savefig(fig=fig, funcname=funcname)
 
         # Display figure:
         self.display()
@@ -393,7 +408,6 @@ class TerminalPlot:
         time = h['Header'].attrs['Time'] * iu['utime'] / const['Myr']
         boxsize = h['Header'].attrs['BoxSize'] * iu['ulength'] / self.ulength
         temp = temperature(h, iu)
-
         print('  * Generating a gas temperature (density-weighted) map')
 
         # Centre the data on the black hole:
@@ -403,10 +417,9 @@ class TerminalPlot:
             pos -= bh
 
         # Coordinate ranges:
-        xrange, yrange, zrange = self.get_ranges(boxsize=boxsize, box=box,
-                                                 xrange=xrange, yrange=yrange,
-                                                 zrange=zrange,
-                                                 bhfocus=bhfocus)
+        xrange, yrange, zrange = self.get_ranges(
+            boxsize=boxsize, box=box, xrange=xrange, yrange=yrange,
+            zrange=zrange, bhfocus=bhfocus)
 
         # Rotation of particle positions:
         pos = self.do_rotation(boxsize=boxsize, axis=axis, rotate=rotate,
@@ -414,51 +427,38 @@ class TerminalPlot:
 
         # Interpolation:
         if interpolation == 'kdtree':
-            interpTemp = interpolate_to_2d_kdtree(pos=pos, unit=self.ulength,
-                                                  values=temp, bins=bins,
-                                                  xrange=xrange, yrange=yrange,
-                                                  zrange=zrange, cut=cut,
-                                                  weights=dens)
+            interpTemp = interpolate_to_2d_kdtree(
+                pos=pos, unit=self.ulength, values=temp, bins=bins,
+                xrange=xrange, yrange=yrange, zrange=zrange, cut=cut,
+                weights=dens)
         else:
-            interpTemp = interpolate_to_2d(pos=pos, unit=self.ulength,
-                                           values=temp, bins=bins,
-                                           xrange=xrange, yrange=yrange,
-                                           zrange=zrange, cut=cut,
-                                           weights=dens)
+            interpTemp = interpolate_to_2d(
+                pos=pos, unit=self.ulength, values=temp, bins=bins,
+                xrange=xrange, yrange=yrange, zrange=zrange, cut=cut,
+                weights=dens)
 
-        # Plot:
+        # Figure:
         fig, ax = plt.subplots(figsize=(8, 6.4))
         fig.subplots_adjust(left=0.18, right=0.82, bottom=0.14, top=0.94,
                             wspace=0, hspace=0)
-
         im = ax.imshow(np.log10(interpTemp), vmin=self.vmin, vmax=self.vmax,
                        extent=(xrange[0], xrange[1], yrange[0], yrange[1]),
                        origin='lower', cmap=configv.cmap['temperature'])
-        ax.text(0.95, 0.05, f'{time:.2f} Myr', color='k',
-                ha='right', va='bottom', transform=ax.transAxes,
-                bbox={'facecolor': 'white', 'edgecolor': 'none',
-                      'boxstyle': 'round', 'alpha': 0.5})
-        ax.set_aspect('equal')
-        ax.set_xlabel(f'$x$ [{self.ulengthselect}]')
-        ax.set_ylabel(f'$y$ [{self.ulengthselect}]')
-        ax.set_xlim(self.xlim)
-        ax.set_ylim(self.ylim)
 
+        # Colorbar:
         div = make_axes_locatable(ax)
         cax = div.append_axes('right', size='5%', pad=0)
         fig.colorbar(im, cax=cax, label=r'$\log_{10}(T \ [\mathrm{K}])$')
 
-        # Save:
+        # Map options:
+        self.map_options(ax, time)
+
+        # Save figure:
         print('  * Figure generated successfully!')
-        self.save(fig=fig, funcname=funcname)
+        self.savefig(fig=fig, funcname=funcname)
 
         # Display figure:
-        if self.show is not True:
-            print('  * Interactive display of figure is NOT allowed')
-            plt.close()
-        else:
-            print('  * Interactive display of figure is now running')
-            plt.show()
+        self.display()
 
         return None
 
@@ -479,7 +479,6 @@ class TerminalPlot:
         dens = h['PartType0']['Density'] * iu['udens']
         bfield = h['PartType0']['MagneticField'] * iu['umagfield']
         bfield_tot = np.linalg.norm(bfield, axis=1)
-
         print('  * Generating a magnetic field strength (density-weighted)' +
               ' map')
 
@@ -490,10 +489,9 @@ class TerminalPlot:
             pos -= bh
 
         # Coordinate ranges:
-        xrange, yrange, zrange = self.get_ranges(boxsize=boxsize, box=box,
-                                                 xrange=xrange, yrange=yrange,
-                                                 zrange=zrange,
-                                                 bhfocus=bhfocus)
+        xrange, yrange, zrange = self.get_ranges(
+            boxsize=boxsize, box=box, xrange=xrange, yrange=yrange,
+            zrange=zrange, bhfocus=bhfocus)
 
         # Rotation of particle positions:
         pos = self.do_rotation(boxsize=boxsize, axis=axis, rotate=rotate,
@@ -501,18 +499,15 @@ class TerminalPlot:
 
         # Interpolation:
         if interpolation == 'kdtree':
-            interpBfield = interpolate_to_2d_kdtree(pos=pos, unit=self.ulength,
-                                                    values=bfield_tot,
-                                                    bins=bins, xrange=xrange,
-                                                    yrange=yrange,
-                                                    zrange=zrange, cut=cut,
-                                                    weights=dens)
+            interpBfield = interpolate_to_2d_kdtree(
+                pos=pos, unit=self.ulength, values=bfield_tot, bins=bins,
+                xrange=xrange, yrange=yrange, zrange=zrange, cut=cut,
+                weights=dens)
         else:
-            interpBfield = interpolate_to_2d(pos=pos, unit=self.ulength,
-                                             values=bfield, bins=bins,
-                                             xrange=xrange, yrange=yrange,
-                                             zrange=zrange, cut=cut,
-                                             weights=dens)
+            interpBfield = interpolate_to_2d(
+                pos=pos, unit=self.ulength, values=bfield, bins=bins,
+                xrange=xrange, yrange=yrange, zrange=zrange, cut=cut,
+                weights=dens)
 
         # Plot:
         fig, ax = plt.subplots(figsize=(8, 6.4))
@@ -522,31 +517,21 @@ class TerminalPlot:
         im = ax.imshow(np.log10(interpBfield), vmin=self.vmin, vmax=self.vmax,
                        extent=(xrange[0], xrange[1], yrange[0], yrange[1]),
                        origin='lower', cmap=configv.cmap['magneticfield'])
-        ax.text(0.95, 0.05, f'{time:.2f} Myr', color='k',
-                ha='right', va='bottom', transform=ax.transAxes,
-                bbox={'facecolor': 'white', 'edgecolor': 'none',
-                      'boxstyle': 'round', 'alpha': 0.5})
-        ax.set_aspect('equal')
-        ax.set_xlabel(f'$x$ [{self.ulengthselect}]')
-        ax.set_ylabel(f'$y$ [{self.ulengthselect}]')
-        ax.set_xlim(self.xlim)
-        ax.set_ylim(self.ylim)
 
+        # Colorbar:
         div = make_axes_locatable(ax)
         cax = div.append_axes('right', size='5%', pad=0)
         fig.colorbar(im, cax=cax, label=r'$B-field$')
 
-        # Save:
+        # Map options:
+        self.map_options(ax, time)
+
+        # Save figure:
         print('  * Figure generated successfully!')
-        self.save(fig=fig, funcname=funcname)
+        self.savefig(fig=fig, funcname=funcname)
 
         # Display figure:
-        if self.show is not True:
-            print('  * Interactive display of figure is NOT allowed')
-            plt.close()
-        else:
-            print('  * Interactive display of figure is now running')
-            plt.show()
+        self.display()
 
         return None
 
@@ -613,12 +598,10 @@ class TerminalPlot:
         radius = ((3*mass) / (4*np.pi*dens))**(1/3)
 
         # 2D Histograms:
-        H0, xedges0, yedges0 = np.histogram2d(np.log10(dens),
-                                              np.log10(radius / const['pc']),
-                                              bins=bins)
-        H1, xedges1, yedges1 = np.histogram2d(np.log10(dens),
-                                              np.log10(mass / const['Msol']),
-                                              bins=bins)
+        H0, xedges0, yedges0 = np.histogram2d(
+            np.log10(dens), np.log10(radius / const['pc']), bins=bins)
+        H1, xedges1, yedges1 = np.histogram2d(
+            np.log10(dens), np.log10(mass / const['Msol']), bins=bins)
 
         # Gaussian filter:
         if smooth > 0:
@@ -675,17 +658,12 @@ class TerminalPlot:
         labelLines(ax[0].get_lines(), xvals=[-24, -24], ha='center',
                    fontsize=14)
 
-        # Save:
+        # Save figure:
         print('  * Figure generated successfully!')
-        self.save(fig=fig, funcname=funcname)
+        self.savefig(fig=fig, funcname=funcname)
 
         # Display figure:
-        if self.show is not True:
-            print('  * Interactive display of figure is NOT allowed')
-            plt.close()
-        else:
-            print('  * Interactive display of figure is now running')
-            plt.show()
+        self.display()
 
         return None
 
@@ -702,14 +680,10 @@ class TerminalPlot:
         h, iu = read_hdf5(file=self.file)
         boxsize = h['Header'].attrs['BoxSize'] * iu['ulength'] / const['kpc']
         time = h['Header'].attrs['Time'] * iu['utime'] / const['Myr']
-
-        # Stellar component:
         pos_disk = h['PartType2']['Coordinates'] * iu['ulength'] / const['kpc']
         mass_disk = h['PartType2']['Masses'] * iu['umass'] / const['Msol']
-
         pos = pos_disk
         mass = mass_disk
-
         print('  * Generating a stellar surface density map')
 
         # Centre the data on the black hole:
@@ -719,10 +693,9 @@ class TerminalPlot:
             pos -= bh
 
         # Coordinate ranges:
-        xrange, yrange, zrange = self.get_ranges(boxsize=boxsize, box=box,
-                                                 xrange=xrange, yrange=yrange,
-                                                 zrange=zrange,
-                                                 bhfocus=bhfocus)
+        xrange, yrange, zrange = self.get_ranges(
+            boxsize=boxsize, box=box, xrange=xrange, yrange=yrange,
+            zrange=zrange, bhfocus=bhfocus)
 
         # Bins in x and y:
         xbins, dx = np.linspace(xrange[0], xrange[1], bins, retstep=True)
@@ -742,41 +715,31 @@ class TerminalPlot:
         with np.errstate(divide='ignore'):
             H = np.log10(H.T / (dx * dy))
 
-        # Plot:
+        # Figure:
         fig, ax = plt.subplots(figsize=(8, 6.4))
         fig.subplots_adjust(left=0.18, right=0.82, bottom=0.14, top=0.94,
                             wspace=0, hspace=0)
-
         im = ax.imshow(H, origin='lower',
                        extent=[xedges[0], xedges[-1], yedges[0], yedges[-1]],
                        vmin=self.vmin, vmax=self.vmax, cmap='bone')
-        ax.text(0.95, 0.05, f'{round(time, 2)} Myr', color='k',
-                ha='right', va='bottom', transform=ax.transAxes,
-                bbox={'facecolor': 'white', 'edgecolor': 'none', 'alpha': 0.5,
-                      'boxstyle': 'round'})
         bone = mpl.colormaps['bone']
         ax.set_facecolor(bone(0))
-        ax.set_aspect('equal')
-        ax.set_xlabel('$x$ [kpc]')
-        ax.set_ylabel('$y$ [kpc]')
-        ax.set_xlim(self.xlim)
-        ax.set_ylim(self.ylim)
+
+        # Colorbar:
         div = make_axes_locatable(ax)
         cax = div.append_axes('right', size='5%', pad=0)
         fig.colorbar(im, cax=cax, label=r'$\log_{10}$($\Sigma_\star$'
                      + r' [M$_\odot$ kpc$^{-2}$])')
 
-        # Save:
+        # Map options:
+        self.map_options(ax, time)
+
+        # Save figure:
         print('  * Figure generated successfully!')
-        self.save(fig=fig, funcname=funcname)
+        self.savefig(fig=fig, funcname=funcname)
 
         # Display figure:
-        if self.show is not True:
-            print('  * Interactive display of figure is NOT allowed')
-            plt.close()
-        else:
-            print('  * Interactive display of figure is now running')
-            plt.show()
+        self.display()
 
         return None
 
@@ -793,15 +756,12 @@ class TerminalPlot:
         h, iu = read_hdf5(file=self.file)
         boxsize = h['Header'].attrs['BoxSize'] * iu['ulength'] / const['kpc']
         time = h['Header'].attrs['Time'] * iu['utime'] / const['Myr']
-
-        # DM component:
         pos = h['PartType1']['Coordinates'] * iu['ulength'] / const['kpc']
         if 'Masses' in h['PartType1']:
             mass = h['PartType1']['Masses'] * iu['umass'] / const['Msol']
         else:
             mass = np.full(len(pos), h['Header'].attrs['MassTable'][1]
                            * iu['umass'] / const['Msol'])
-
         print('  * Generating a dark matter surface density map')
 
         # Centre the data on the black hole:
@@ -811,10 +771,9 @@ class TerminalPlot:
             pos -= bh
 
         # Coordinate ranges:
-        xrange, yrange, zrange = self.get_ranges(boxsize=boxsize, box=box,
-                                                 xrange=xrange, yrange=yrange,
-                                                 zrange=zrange,
-                                                 bhfocus=bhfocus)
+        xrange, yrange, zrange = self.get_ranges(
+            boxsize=boxsize, box=box, xrange=xrange, yrange=yrange,
+            zrange=zrange, bhfocus=bhfocus)
 
         # Bins in x and y:
         xbins, dx = np.linspace(xrange[0], xrange[1], bins, retstep=True)
@@ -839,33 +798,24 @@ class TerminalPlot:
         im = ax.imshow(H, origin='lower',
                        extent=[xedges[0], xedges[-1], yedges[0], yedges[-1]],
                        vmin=self.vmin, vmax=self.vmax, cmap='magma')
-        ax.text(0.95, 0.05, f'{round(time, 2)} Myr', color='k',
-                ha='right', va='bottom', transform=ax.transAxes,
-                bbox={'facecolor': 'white', 'edgecolor': 'none', 'alpha': 0.5,
-                      'boxstyle': 'round'})
         bone = mpl.colormaps['magma']
         ax.set_facecolor(bone(0))
-        ax.set_aspect('equal')
-        ax.set_xlabel('$x$ [kpc]')
-        ax.set_ylabel('$y$ [kpc]')
-        ax.set_xlim(self.xlim)
-        ax.set_ylim(self.ylim)
+
+        # Colorbar:
         div = make_axes_locatable(ax)
         cax = div.append_axes('right', size='5%', pad=0)
         fig.colorbar(im, cax=cax, label=r'$\log_{10}$($\Sigma_\star$'
                      + r' [M$_\odot$ kpc$^{-2}$])')
 
-        # Save:
+        # Map options:
+        self.map_options(ax, time)
+
+        # Save figure:
         print('  * Figure generated successfully!')
-        self.save(fig=fig, funcname=funcname)
+        self.savefig(fig=fig, funcname=funcname)
 
         # Display figure:
-        if self.show is not True:
-            print('  * Interactive display of figure is NOT allowed')
-            plt.close()
-        else:
-            print('  * Interactive display of figure is now running')
-            plt.show()
+        self.display()
 
         return None
 
@@ -890,7 +840,6 @@ class TerminalPlot:
         mass_stars = h['PartType4']['Masses'] * iu['umass'] / const['Msol']
         time_stars = (h['PartType4']['StellarFormationTime'] * iu['utime']
                       / const['Myr'])
-
         print('  * Generating a star formation rate surface density map')
 
         # Centre the data on the black hole:
@@ -901,10 +850,9 @@ class TerminalPlot:
             pos_stars -= bh
 
         # Coordinate ranges:
-        xrange, yrange, zrange = self.get_ranges(boxsize=boxsize, box=box,
-                                                 xrange=xrange, yrange=yrange,
-                                                 zrange=zrange,
-                                                 bhfocus=bhfocus)
+        xrange, yrange, zrange = self.get_ranges(
+            boxsize=boxsize, box=box, xrange=xrange, yrange=yrange,
+            zrange=zrange, bhfocus=bhfocus)
 
         # Rotation of particle positions:
         pos_gas = self.do_rotation(boxsize=boxsize, axis=axis, rotate=rotate,
@@ -914,16 +862,13 @@ class TerminalPlot:
 
         # Interpolation:
         if interpolation == 'kdtree':
-            interpDens = interpolate_to_2d_kdtree(pos=pos_gas,
-                                                  unit=self.ulength,
-                                                  values=dens_gas, bins=bins,
-                                                  xrange=xrange, yrange=yrange,
-                                                  zrange=zrange, cut=cut)
+            interpDens = interpolate_to_2d_kdtree(
+                pos=pos_gas, unit=self.ulength, values=dens_gas, bins=bins,
+                xrange=xrange, yrange=yrange, zrange=zrange, cut=cut)
         else:
-            interpDens = interpolate_to_2d(pos=pos_gas, unit=self.ulength,
-                                           values=dens_gas, bins=bins,
-                                           xrange=xrange, yrange=yrange,
-                                           zrange=zrange, cut=cut)
+            interpDens = interpolate_to_2d(
+                pos=pos_gas, unit=self.ulength, values=dens_gas, bins=bins,
+                xrange=xrange, yrange=yrange, zrange=zrange, cut=cut)
 
         # Star formation surface density:
         mask_sf = (time - time_stars < 10)
@@ -936,24 +881,13 @@ class TerminalPlot:
         with np.errstate(divide='ignore'):
             H = np.log10(H.T/(dx * dy) / (10 * 1e6))
 
-        # Plot:
+        # Figure:
         fig, ax = plt.subplots(figsize=(8, 6.4))
         fig.subplots_adjust(left=0.18, right=0.82, bottom=0.14, top=0.94,
                             wspace=0, hspace=0)
-
         im_gas = ax.imshow(np.log10(interpDens), origin='lower',
                            extent=(xrange[0], xrange[1], yrange[0], yrange[1]),
                            vmin=self.vmin, vmax=self.vmax, cmap='Greys')
-        ax.text(0.95, 0.05, f'{round(time, 2)} Myr', color='k',
-                ha='right', va='bottom', transform=ax.transAxes,
-                bbox={'facecolor': 'white', 'edgecolor': 'none',
-                      'alpha': 0.5, 'boxstyle': 'round'})
-        ax.set_aspect('equal')
-        ax.set_xlabel('$x$ [kpc]')
-        ax.set_ylabel('$y$ [kpc]')
-        ax.set_xlim(self.xlim)
-        ax.set_ylim(self.ylim)
-
         div = make_axes_locatable(ax)
         cax = div.append_axes('right', size='5%', pad=0)
         fig.colorbar(im_gas, cax=cax, label=r'$\log_{10}(\Sigma_\mathrm{Gas}$'
@@ -970,17 +904,15 @@ class TerminalPlot:
                      + f' {self.ulengthselect}' + '$^{-2}$' + '])', size=12)
         cb.ax.tick_params(labelsize=12)
 
+        # Map options:
+        self.map_options(ax, time)
+
         # Save:
         print('  * Figure generated successfully!')
-        self.save(fig=fig, funcname=funcname)
+        self.savefig(fig=fig, funcname=funcname)
 
         # Display figure:
-        if self.show is not True:
-            print('  * Interactive display of figure is NOT allowed')
-            plt.close()
-        else:
-            print('  * Interactive display of figure is now running')
-            plt.show()
+        self.display()
 
         return None
 
@@ -1003,7 +935,6 @@ class TerminalPlot:
                      / self.ulength)
         time_stars = (h['PartType4']['StellarFormationTime'] * iu['utime']
                       / const['Myr'])
-
         print('  * Generating a map highlighting the stellar age of newly' +
               ' formed star particles')
 
@@ -1015,10 +946,9 @@ class TerminalPlot:
             pos_stars -= bh
 
         # Coordinate ranges:
-        xrange, yrange, zrange = self.get_ranges(boxsize=boxsize, box=box,
-                                                 xrange=xrange, yrange=yrange,
-                                                 zrange=zrange,
-                                                 bhfocus=bhfocus)
+        xrange, yrange, zrange = self.get_ranges(
+            boxsize=boxsize, box=box, xrange=xrange, yrange=yrange,
+            zrange=zrange, bhfocus=bhfocus)
 
         # Rotation of particle positions:
         pos_gas = self.do_rotation(boxsize=boxsize, axis=axis, rotate=rotate,
@@ -1028,16 +958,13 @@ class TerminalPlot:
 
         # Interpolation:
         if interpolation == 'kdtree':
-            interpDens = interpolate_to_2d_kdtree(pos=pos_gas,
-                                                  unit=self.ulength,
-                                                  values=dens_gas, bins=bins,
-                                                  xrange=xrange, yrange=yrange,
-                                                  zrange=zrange, cut=cut)
+            interpDens = interpolate_to_2d_kdtree(
+                pos=pos_gas, unit=self.ulength, values=dens_gas, bins=bins,
+                xrange=xrange, yrange=yrange, zrange=zrange, cut=cut)
         else:
-            interpDens = interpolate_to_2d(pos=pos_gas, unit=self.ulength,
-                                           values=dens_gas, bins=bins,
-                                           xrange=xrange, yrange=yrange,
-                                           zrange=zrange, cut=cut)
+            interpDens = interpolate_to_2d(
+                pos=pos_gas, unit=self.ulength, values=dens_gas, bins=bins,
+                xrange=xrange, yrange=yrange, zrange=zrange, cut=cut)
 
         # Stars:
         mask = ((pos_stars[:, 0] > xrange[0]) * (pos_stars[:, 0] < xrange[1])
@@ -1045,24 +972,15 @@ class TerminalPlot:
                 * (pos_stars[:, 2] > zrange[0]) * (pos_stars[:, 2] < zrange[1])
                 * (np.abs(time - time_stars) < age))
 
-        # Plot:
+        # Figure:
         fig, ax = plt.subplots(figsize=(8, 6.4))
         fig.subplots_adjust(left=0.18, right=0.82, bottom=0.14, top=0.94,
                             wspace=0, hspace=0)
-
         im_gas = ax.imshow(np.log10(interpDens), origin='lower', cmap='Greys',
                            extent=(xrange[0], xrange[1], yrange[0], yrange[1]),
                            vmin=self.vmin, vmax=self.vmax)
-        ax.text(0.95, 0.05, f'{round(time, 2)} Myr', color='k',
-                ha='right', va='bottom', transform=ax.transAxes,
-                bbox={'facecolor': 'white', 'edgecolor': 'none', 'alpha': 0.5,
-                      'boxstyle': 'round'})
-        ax.set_aspect('equal')
-        ax.set_xlabel('$x$ [kpc]')
-        ax.set_ylabel('$y$ [kpc]')
-        ax.set_xlim(self.xlim)
-        ax.set_ylim(self.ylim)
 
+        # Colorbar:
         div = make_axes_locatable(ax)
         cax = div.append_axes('right', size='5%', pad=0)
         fig.colorbar(im_gas, cax=cax, label=r'$\log_{10}(\Sigma_\mathrm{Gas}$'
@@ -1083,17 +1001,15 @@ class TerminalPlot:
         cb.set_label(label='Stellar age [Myr]', size=12)
         cb.ax.tick_params(labelsize=12)
 
-        # Save:
+        # Map options:
+        self.map_options(ax, time)
+
+        # Save figure:
         print('  * Figure generated successfully!')
-        self.save(fig=fig, funcname=funcname)
+        self.savefig(fig=fig, funcname=funcname)
 
         # Display figure:
-        if self.show is not True:
-            print('  * Interactive display of figure is NOT allowed')
-            plt.close()
-        else:
-            print('  * Interactive display of figure is now running')
-            plt.show()
+        self.display()
 
         return None
 
@@ -1102,7 +1018,6 @@ class TerminalPlot:
     def star_formation_rate(self, compare_to_snapshot=None, funcname='sfr'):
         '''TODO
         '''
-
         # In case additional snapshots are given:
         list_of_snapshots = [self.file]
         if compare_to_snapshot is not None:
@@ -1116,8 +1031,6 @@ class TerminalPlot:
             print(f'  * Reading data of {snapshot}')
             h, iu = read_hdf5(file=snapshot)
             time = h['Header'].attrs['Time'] * iu['utime'] / const['Myr']
-            pos_stars = (h['PartType4']['Coordinates'] * iu['ulength']
-                         / const['kpc'])
             mass_stars = h['PartType4']['Masses'] * iu['umass'] / const['Msol']
             time_stars = (h['PartType4']['StellarFormationTime'] * iu['utime']
                           / const['Myr'])
@@ -1140,15 +1053,10 @@ class TerminalPlot:
 
         # Save:
         print('  * Figure generated successfully!')
-        self.save(fig=fig, funcname=funcname)
+        self.savefig(fig=fig, funcname=funcname)
 
         # Display figure:
-        if self.show is not True:
-            print('  * Interactive display of figure is NOT allowed')
-            plt.close()
-        else:
-            print('  * Interactive display of figure is now running')
-            plt.show()
+        self.display()
 
         return None
 
@@ -1289,15 +1197,10 @@ class TerminalPlot:
 
         # Save:
         print('  * Figure generated successfully!')
-        self.save(fig=fig, funcname=funcname)
+        self.savefig(fig=fig, funcname=funcname)
 
         # Display figure:
-        if self.show is not True:
-            print('  * Interactive display of figure is NOT allowed')
-            plt.close()
-        else:
-            print('  * Interactive display of figure is now running')
-            plt.show()
+        self.display()
 
         return None
 

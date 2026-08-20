@@ -1,30 +1,89 @@
 # -------------- Required packages
 import os
+import sys
 import argparse
 import numpy as np
 
 # -------------- Import Vatpy TerminalPlot
-from vatpy import TerminalPlot
+from vatpy import Plot
 
 # -------------- Vatpy Config
 import configv
 
 
-# -------------- Snapshot argument
+# -------------- Function to search for already generated frames:
+def search_for_frames(output_dir, movie, format='png', skipsnapshots=0):
+    # Check if vframes directory already exists or not:
+    if os.path.isdir(f'{os.getcwd()}/vframes'):
+        print('  * Directory for vframes detected!')
+    else:
+        print('  * Directory for vframes NOT detected!')
+        print('    -> Creating a vframes directory')
+        os.makedirs(f'{os.getcwd()}/vframes')
+
+    # Check if some frames already have been generated or not:
+    f = 0
+    if skipsnapshots > 0:
+        f += skipsnapshots
+    frame = '000'[:3-len(str(f))] + str(f)
+    if os.path.isdir(f'{os.getcwd()}/vframes/{movie}'):
+        while os.path.isfile(f'{os.getcwd()}/vframes/{movie}/' +
+                             f'{movie}_{frame}.{format}'):
+            f += 1
+            frame = '000'[:3-len(str(f))] + str(f)
+        f_print = f
+        if skipsnapshots > 0:
+            f_print -= skipsnapshots
+        print(f'  * Found {f_print} already generated frames in' +
+              f' \'vframes/{movie}\'')
+    else:
+        print(f'  * Creating a \'{movie}\' subdirectory in vframes')
+        os.makedirs(f'{os.getcwd()}/vframes/{movie}')
+
+    # Seach for available snapshots:
+    snapshot_nr_list = []
+    for file in os.listdir(output_dir):
+        if file.startswith('snap_'):
+            file_split1 = file.split('.')
+            file_split2 = file_split1[0].split('_')
+            snapshot_nr_list.append(int(file_split2[1]))
+
+    # Snapshots left to analyse:
+    if np.max(snapshot_nr_list) > f:
+        snapshots_left = ['000'[:3-len(str(s))] + str(s) for s in
+                          np.arange(f, np.max(snapshot_nr_list)+1, 1)]
+        snapshots_to_read = [f'snap_{s}.hdf5' for s in snapshots_left]
+
+    # TODO
+    save = f'{os.getcwd()}/vframes/{movie}/'
+    name = f'{movie}'
+    show = False
+
+    return snapshots_to_read, save, name, show
+
+
+# -------------- Snapshot or output directory argument
 # Initialize argparse:
 formatter_class = argparse.RawDescriptionHelpFormatter
-parser = argparse.ArgumentParser(description='Script for Vatpy TerminalPlot',
-                                 usage='tplot [options] snapshot',
+parser = argparse.ArgumentParser(description='Script for Vatpy Plot',
+                                 usage='vplot [options]',
                                  formatter_class=formatter_class)
 parser._actions[0].help = 'Show this help message'
-
-# Positional argument:
-parser.add_argument('snapshot', help='Snapshot to analyse')
+# Snapshot:
+parser.add_argument('-s', '--snapshot', action='store',
+                    help='''
+                    Snapshot to analyse
+                    ''')
+# Output directory:
+parser.add_argument('-o', '--outputdir', action='store',
+                    help='''
+                    Output directory to analyse
+                    ''')
 
 # -------------- Main arguments
 parser.add_argument('-info', '--information', action='store_true',
                     help='''
-                    Print some general information for the given snapshot
+                    Provide some general information about the given data
                     ''')
 parser.add_argument('-dens', '--density', action='store_true',
                     help='''
@@ -39,15 +98,16 @@ parser.add_argument('-temp', '--temperature', action='store_true',
                     -cut for more details)
                     ''')
 parser.add_argument('-bfield', '--magneticfield', action='store_true',
-                    help='''TODO
+                    help='''
+                    TODO
                     ''')
 parser.add_argument('-res', '--resolution', action='store_true',
                     help='''
-                    Generate a gas resolution plot, showing the mass and
-                    typical cell radius, as a function of gas density, for all
-                    the gas cells in the simulation domain
+                    Generate a resolution plot, showing the mass and typical
+                    cell radius, as a function of gas density, for all the gas
+                    cells in the simulation domain
                     ''')
-parser.add_argument('-stellar', '--stellar', action='store_true',
+parser.add_argument('-stellar', '--stellarmaterial', action='store_true',
                     help='''
                     Generate a stellar surface density map
                     ''')
@@ -164,7 +224,7 @@ parser.add_argument('-xlim', '--xlim', action='store', default=None,
                     nargs=2, type=float, help='Axis xlim (default: xrange)')
 parser.add_argument('-ylim', '--ylim', action='store', default=None,
                     nargs=2, type=float, help='Axis ylim (default: yrange)')
-parser.add_argument('-movie', '--movie', action='store', default=None,
+parser.add_argument('-movie', '--movie', action='store', default=False,
                     type=str, help='''
                     Generate a movie up to the given snapshot
                     ''')
@@ -175,7 +235,7 @@ parser.add_argument('-noxyticks', '--noxyticks', action='store_true',
                     ' an information text above the figure instead')
 
 # -------------- General arguments
-parser.add_argument('-path', '--path', action='store',
+parser.add_argument('-save', '--save', action='store',
                     default=f'{os.getcwd()}/vplots', help='''
                     Path to save generated figure at (default: current working
                     directory)
@@ -199,122 +259,103 @@ parser.add_argument('-show', '--show', action='store',
                     ''')
 
 # -------------- Read arguments (from the command line):
+print('\nWelcome to VATPY Plot')
 args = parser.parse_args()
 
-print('\nWelcome to Vatpy TerminalPlot')
+# Check for possible conflicts:
+if (args.snapshot is None) and (args.outputdir is None):
+    sys.exit('  * Error: Missing snapshot (-s) or output directory (-o) to ' +
+             'analyse\n  * Terminating script...\n')
 
-if args.movie:
-    print('  * Starting to generate movie frames up to snapshot: ' +
-          f'{args.snapshot}')
+if (args.snapshot is not None) and (args.outputdir is not None):
+    sys.exit('  * Error: Both snapshot (-s) and output directory (-o) ' +
+             'provided\n  * Terminating script...\n')
 
-    # Check if vframes directory already exists or not:
-    if os.path.isdir(f'{os.getcwd()}/vframes'):
-        print('  * Directory for vframes detected!')
-    else:
-        print('  * Directory for vframes NOT detected!')
-        print('    -> Creating a vframes directory')
-        os.makedirs(f'{os.getcwd()}/vframes')
-
-    # Check if some frames already have been generated or not:
-    f = 0
-    if args.skipsnapshots > 0:
-        f += args.skipsnapshots
-    frame = '000'[:3-len(str(f))] + str(f)
-    if os.path.isdir(f'{os.getcwd()}/vframes/{args.movie}'):
-        while os.path.isfile(f'{os.getcwd()}/vframes/{args.movie}/' +
-                             f'{args.movie}_{frame}.{args.format}'):
-            f += 1
-            frame = '000'[:3-len(str(f))] + str(f)
-        f_print = f
-        if args.skipsnapshots > 0:
-            f_print -= args.skipsnapshots
-        print(f'  * Found {f_print} already generated frames in' +
-              f' \'vframes/{args.movie}\'')
-    else:
-        print(f'  * Creating a \'{args.movie}\' subdirectory in vframes')
-        os.makedirs(f'{os.getcwd()}/vframes/{args.movie}')
-
-    snapshot_split = args.snapshot.split('.')
-    snapshot_final = int(snapshot_split[0][-3:])
-    snapshot_list = ['000'[:3-len(str(s))] + str(s) for s in
-                     np.arange(f, snapshot_final+1, 1)]
-    snapshots_to_read = [f'snap_{s}.hdf5' for s in snapshot_list]
-    path = f'{os.getcwd()}/vframes/{args.movie}/'
-    name = f'{args.movie}'
-    show = False
-else:
+# 
+if (args.outputdir is not None) and (args.movie is True):
+    # print('  * Starting to generate movie frames up to snapshot: ' +
+    #       f'{args.snapshot}')
+    snapshots_to_read, save, name, show = search_for_frames(
+        output_dir=args.outputdir, movie=args.movie, format=args.format,
+        skipsnapshots=args.skipsnapshots)
+elif (args.snapshot is not None) and (args.movie is False):
     snapshots_to_read = [args.snapshot]
-    path = args.path
+    save = args.save
     name = args.name
     show = args.show
+elif (args.snapshot is not None) and (args.movie is True):
+    sys.exit('  * Warning: -movie argument was provided but can not be used ' +
+             'with a snapshot argument, please provide an output directory ' +
+             'instead (-o)')
 
 # Loop over snapshot(s):
 for snap in snapshots_to_read:
-    # Run TerminalPlot:
+    # Run Plot:
     if args.snapshot:
-        v = TerminalPlot(file=snap, style=args.style, path=path,
-                         name=name, format=args.format,
-                         vmin=args.vmin, vmax=args.vmax,
-                         xlim=args.xlim, ylim=args.ylim,
-                         ulengthselect=args.ulength, show=show,
-                         noxylabels=args.noxylabels, noxyticks=args.noxyticks)
+        plot = Plot(file=snap, style=args.style, save=save, name=name,
+                    format=args.format, vmin=args.vmin, vmax=args.vmax,
+                    xlim=args.xlim, ylim=args.ylim,
+                    ulengthselect=args.ulength, show=show,
+                    noxylabels=args.noxylabels, noxyticks=args.noxyticks)
 
     if args.information:
-        v.info()
+        plot.info()
 
     if args.density:
-        v.density(axis=args.axis, rotate=args.rotate, quantity=args.quantity,
-                  bins=args.bins, boxcenter=args.boxcenter,
-                  bhfocus=args.bhfocus, bhshow=args.bhshow, xrange=args.xrange,
-                  yrange=args.yrange, zrange=args.zrange, box=args.box,
-                  cut=args.cut)
+        plot.density(axis=args.axis, rotate=args.rotate,
+                     quantity=args.quantity, bins=args.bins,
+                     boxcenter=args.boxcenter, bhfocus=args.bhfocus,
+                     bhshow=args.bhshow, xrange=args.xrange,
+                     yrange=args.yrange, zrange=args.zrange, box=args.box,
+                     cut=args.cut)
 
     if args.temperature:
-        v.temperature(axis=args.axis, rotate=args.rotate, bins=args.bins,
-                      bhfocus=args.bhfocus, xrange=args.xrange,
-                      yrange=args.yrange, zrange=args.zrange, box=args.box,
-                      cut=args.cut)
+        plot.temperature(axis=args.axis, rotate=args.rotate, bins=args.bins,
+                         bhfocus=args.bhfocus, xrange=args.xrange,
+                         yrange=args.yrange, zrange=args.zrange, box=args.box,
+                         cut=args.cut)
 
     if args.magneticfield:
-        v.magneticfield(axis=args.axis, rotate=args.rotate, bins=args.bins,
-                        bhfocus=args.bhfocus, xrange=args.xrange,
-                        yrange=args.yrange, zrange=args.zrange, box=args.box,
-                        cut=args.cut)
+        plot.magneticfield(axis=args.axis, rotate=args.rotate, bins=args.bins,
+                           bhfocus=args.bhfocus, xrange=args.xrange,
+                           yrange=args.yrange, zrange=args.zrange,
+                           box=args.box, cut=args.cut)
 
     if args.resolution:
-        v.resolution(bins=args.bins, levels=args.levels, smooth=args.smooth)
+        plot.resolution(bins=args.bins, levels=args.levels, smooth=args.smooth)
 
-    if args.stellar:
-        v.stellar(axis=args.axis, rotate=args.rotate, bins=args.bins,
-                  xrange=args.xrange, yrange=args.yrange, zrange=args.zrange,
-                  box=args.box)
+    if args.stellarmaterial:
+        plot.stellarmaterial(axis=args.axis, rotate=args.rotate,
+                             bins=args.bins, xrange=args.xrange,
+                             yrange=args.yrange, zrange=args.zrange,
+                             box=args.box)
 
     if args.darkmatter:
-        v.darkmatter(axis=args.axis, rotate=args.rotate, bins=args.bins,
-                     xrange=args.xrange, yrange=args.yrange,
-                     zrange=args.zrange, box=args.box)
+        plot.darkmatter(axis=args.axis, rotate=args.rotate, bins=args.bins,
+                        xrange=args.xrange, yrange=args.yrange,
+                        zrange=args.zrange, box=args.box)
 
     if args.starformation:
-        v.star_formation(axis=args.axis, rotate=args.rotate, bins=args.bins,
-                         sfb=args.starformationbins, bhfocus=args.bhfocus,
+        plot.star_formation(axis=args.axis, rotate=args.rotate, bins=args.bins,
+                            sfb=args.starformationbins, bhfocus=args.bhfocus,
+                            xrange=args.xrange, yrange=args.yrange,
+                            zrange=args.zrange, box=args.box, cut=args.cut)
+
+    if args.stellarage:
+        plot.stellar_age(axis=args.axis, rotate=args.rotate, bins=args.bins,
+                         age=args.maxstellarage, bhfocus=args.bhfocus,
                          xrange=args.xrange, yrange=args.yrange,
                          zrange=args.zrange, box=args.box, cut=args.cut)
 
-    if args.stellarage:
-        v.stellar_age(axis=args.axis, rotate=args.rotate, bins=args.bins,
-                      age=args.maxstellarage, bhfocus=args.bhfocus,
-                      xrange=args.xrange, yrange=args.yrange,
-                      zrange=args.zrange, box=args.box, cut=args.cut)
-
     if args.starformationrate:
-        v.star_formation_rate(
+        plot.star_formation_rate(
             compare_to_snapshot=args.comparetosnapshot)
 
     if args.blackholeevolution:
-        v.black_hole_evolution(vcr=args.variablecircradius)
+        plot.black_hole_evolution(vcr=args.variablecircradius)
 
     if args.ffmpeg:
-        v.ffmpeg(framedir=args.ffmpeg, skip=args.skipsnapshots)
+        plot.ffmpeg(framedir=args.ffmpeg, skip=args.skipsnapshots)
 
 print('  * Run completed!\n')
 

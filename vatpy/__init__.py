@@ -1,5 +1,5 @@
-# TerminalPlot:
-from .terminal_plot import TerminalPlot
+# Plot:
+from .plot import Plot
 
 # Functions to read different types of data files:
 from .read import read_hdf5
