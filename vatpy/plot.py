@@ -5,6 +5,7 @@
 
 # -------------- Required packages
 import os
+import sys
 import numpy as np
 import cmasher as cmr
 import matplotlib as mpl
@@ -269,37 +270,37 @@ class Plot:
                 rad_tot = h['PartType0']['PhotonFlux'][:]
                 num_freq_bin = np.shape(rad_tot)[1]
                 print(f'  * Number of frequency bins: {num_freq_bin}')
-                print('  * Min and max photon fluxes in each frequency bin:')
-                hist_list, bin_edges_list = [], []
                 for i in range(0, num_freq_bin):
                     rad = rad_tot[:, i]
-                    print(f'  * Freq. bin {i} | min: {np.min(rad)}, ' +
+                    print(f'  * Freq. bin {i} | min: {np.min(rad)}; ' +
                           f'max: {np.max(rad)}')
+                    if np.min(rad) == 0:
+                        print('  * Cells with zero flux detected ->' +
+                              ' replacing them with a flux of 1e-99')
+                        rad[rad == 0] = 1e-99
                     hist, bin_edges = np.histogram(np.log10(rad), bins=50)
-                    hist_list.append(hist)
-                    bin_edges_list.append(bin_edges)
-
-                print('  * Preparing graph...\n')
-                fig = plotille.Figure()
-                fig.height = 15
-                fig.width = 60
-                for i in range(0, num_freq_bin):
-                    X = bin_edges_list[i]
+                    fig = plotille.Figure()
+                    fig.height = 5
+                    fig.width = 40
+                    X = bin_edges
                     X = (X[:-1] + X[1:]) / 2
-                    Y = hist_list[i]
+                    Y = hist
                     fig.plot(X, Y, label=f'Freq. bin {i}')
-                fig.set_x_limits(min_=0)
-                fig.set_y_limits(min_=0)
-                fig.x_label = 'log10[F / s^-1]'
-                fig.y_label = '# cells'
-                print(fig.show(legend=True) + '\n')
+                    fig.set_x_limits(min_=0)
+                    fig.set_y_limits(min_=0)
+                    fig.x_label = 'log10[F / s^-1]'
+                    fig.y_label = '# cells'
+                    fig.origin = False
+                    print(fig.show(legend=False) + '\n')
 
-        # Radiation from the black hole:
+        # Photon rate from the black hole:
         if 'PartType5' in h.keys():
             print('  * A sink particle found in PartType5')
             if '/' in self.file:
                 file_split1 = self.file.split('/')
                 output_dir = file_split1[0]
+                for i in range(1, len(file_split1)-1):
+                    output_dir += '/' + file_split1[i]
             else:
                 file_split1 = [self.file]
                 output_dir = os.getcwd()
@@ -307,26 +308,55 @@ class Plot:
             file_split3 = file_split2[0].split('_')
             snap_nr = file_split3[1]
 
-            N = int(snap_nr)
-            nfreq = 5
-            data = get_black_hole_data(output_dir=output_dir, n=N, N=N,
-                                       vcr=True, rad=True, sgs=True,
-                                       nfreq=nfreq)
-
-            print('  * Photon rates found for central black hole')
-            ion_rate = np.log10(data['PhotoIonRate'][0])
-            print('  * Preparing graph...\n')
-            fig = plotille.Figure()
-            fig.height = 10
-            fig.width = 40
-            fig.origin = False
-            freq_bins = np.arange(0, nfreq, 1)
-            for i in range(0, nfreq):
-                fig.scatter([freq_bins[i]], [ion_rate[i]],
-                            label=f'Freq. bin {i}', marker='o')
-            fig.y_label = 'log10[F / s^-1]'
-            fig.with_x_axis = False
-            print(fig.show(legend=True) + '\n')
+            if 'Config' in h.keys():
+                if 'SINK_PARTICLES_BH_FEEDBACK_RADIATION' in h['Config'].attrs:
+                    bh_rad_flag = 'SINK_PARTICLES_BH_FEEDBACK_RADIATION'
+                    bh_rad_sed = h['Config'].attrs[bh_rad_flag]
+                    if bh_rad_sed == 10:
+                        nfreq = 5
+                    elif bh_rad_sed == 11:
+                        nfreq = 6
+                    elif bh_rad_sed == 12:
+                        nfreq = 7
+                    elif bh_rad_sed == 14:
+                        nfreq = 9
+                    else:
+                        sys.exit('Error: BH radiation option not recognised')
+                    print('  * Inferred that BH radiation is split into' +
+                          f' {nfreq} freq. bins')
+                    N = int(snap_nr)
+                    data = get_black_hole_data(
+                        output_dir=output_dir, n=N, N=N, vcr=True, rad=True,
+                        sgs=True, nfreq=nfreq)
+                    ion_rate = data['PhotoIonRate'][0]
+                    print('  * Plotting the photon rate in each frequency' +
+                          ' bin')
+                    fig = plotille.Figure()
+                    fig.height = 5
+                    fig.width = 40
+                    fig.origin = False
+                    freq_bins = np.arange(0, nfreq, 1)
+                    for i in range(0, nfreq):
+                        if ion_rate[i] > 0:
+                            ion_rate_log = np.log10(ion_rate[i])
+                            fig.scatter([freq_bins[i]], [ion_rate_log],
+                                        label=f'Freq. bin {i}', marker=f'{i}')
+                        else:
+                            print(f'    - Freq. bin {i} has no photon rate')
+                    fig.set_x_limits(min_=0, max_=nfreq)
+                    fig.x_label = 'Freq. bin'
+                    fig.y_label = 'log10[F / s^-1]'
+                    fig.with_y_axis = True
+                    print(fig.show(legend=False) + '\n')
+                else:
+                    print('  * The sink particle does not produe any' +
+                          ' radiation -> no further analysis needed')
+            else:
+                print('  * Config flags not detected, can not infer if the' +
+                      ' sink particle produces any radiation or not -> no' +
+                      ' further analysis possible')
+        else:
+            print('  * No sink particle found in PartType5')
 
         # Close the data:
         h.close()
