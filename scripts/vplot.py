@@ -85,6 +85,11 @@ parser.add_argument('-info', '--information', action='store_true',
                     help='''
                     Provide some general information about the given data
                     ''')
+parser.add_argument('-checkrad', '--checkradiation', action='store_true',
+                    help='''
+                    Check the radiation output from stars and black holes in
+                    the given data
+                    ''')
 parser.add_argument('-dens', '--density', action='store_true',
                     help='''
                     Generate a gas surface density map, either as a column
@@ -290,16 +295,17 @@ elif (args.snapshot is not None) and (args.movie is True):
 
 # Loop over snapshot(s):
 for snap in snapshots_to_read:
-    # Run Plot:
-    if args.snapshot:
-        plot = Plot(file=snap, style=args.style, save=save, name=name,
-                    format=args.format, vmin=args.vmin, vmax=args.vmax,
-                    xlim=args.xlim, ylim=args.ylim,
-                    ulengthselect=args.ulength, show=show,
-                    noxylabels=args.noxylabels, noxyticks=args.noxyticks)
+    plot = Plot(file=snap, style=args.style, save=save, name=name,
+                format=args.format, vmin=args.vmin, vmax=args.vmax,
+                xlim=args.xlim, ylim=args.ylim, ulengthselect=args.ulength,
+                noxylabels=args.noxylabels, noxyticks=args.noxyticks,
+                show=show)
 
     if args.information:
         plot.info()
+
+    if args.checkradiation:
+        plot.check_radiation()
 
     if args.density:
         plot.density(axis=args.axis, rotate=args.rotate,

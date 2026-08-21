@@ -9,7 +9,7 @@ import numpy as np
 import cmasher as cmr
 import matplotlib as mpl
 import matplotlib.pyplot as plt
-import plotext as pltext
+import plotille
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from scipy.spatial.transform import Rotation
 from scipy.ndimage import gaussian_filter
@@ -263,8 +263,70 @@ class Plot:
     def check_radiation(self):
         # Read the data:
         h, iu = read_hdf5(file=self.file)
+        if 'PartType0' in h.keys():
+            if 'PhotonFlux' in h['PartType0'].keys():
+                print('  * Photon fluxes found for PartType0')
+                rad_tot = h['PartType0']['PhotonFlux'][:]
+                num_freq_bin = np.shape(rad_tot)[1]
+                print(f'  * Number of frequency bins: {num_freq_bin}')
+                print('  * Min and max photon fluxes in each frequency bin:')
+                hist_list, bin_edges_list = [], []
+                for i in range(0, num_freq_bin):
+                    rad = rad_tot[:, i]
+                    print(f'  * Freq. bin {i} | min: {np.min(rad)}, ' +
+                          f'max: {np.max(rad)}')
+                    hist, bin_edges = np.histogram(np.log10(rad), bins=50)
+                    hist_list.append(hist)
+                    bin_edges_list.append(bin_edges)
 
-        
+                print('  * Preparing graph...\n')
+                fig = plotille.Figure()
+                fig.height = 15
+                fig.width = 60
+                for i in range(0, num_freq_bin):
+                    X = bin_edges_list[i]
+                    X = (X[:-1] + X[1:]) / 2
+                    Y = hist_list[i]
+                    fig.plot(X, Y, label=f'Freq. bin {i}')
+                fig.set_x_limits(min_=0)
+                fig.set_y_limits(min_=0)
+                fig.x_label = 'log10[F / s^-1]'
+                fig.y_label = '# cells'
+                print(fig.show(legend=True) + '\n')
+
+        # Radiation from the black hole:
+        if 'PartType5' in h.keys():
+            print('  * A sink particle found in PartType5')
+            if '/' in self.file:
+                file_split1 = self.file.split('/')
+                output_dir = file_split1[0]
+            else:
+                file_split1 = [self.file]
+                output_dir = os.getcwd()
+            file_split2 = file_split1[-1].split('.')
+            file_split3 = file_split2[0].split('_')
+            snap_nr = file_split3[1]
+
+            N = int(snap_nr)
+            nfreq = 5
+            data = get_black_hole_data(output_dir=output_dir, n=N, N=N,
+                                       vcr=True, rad=True, sgs=True,
+                                       nfreq=nfreq)
+
+            print('  * Photon rates found for central black hole')
+            ion_rate = np.log10(data['PhotoIonRate'][0])
+            print('  * Preparing graph...\n')
+            fig = plotille.Figure()
+            fig.height = 10
+            fig.width = 40
+            fig.origin = False
+            freq_bins = np.arange(0, nfreq, 1)
+            for i in range(0, nfreq):
+                fig.scatter([freq_bins[i]], [ion_rate[i]],
+                            label=f'Freq. bin {i}', marker='o')
+            fig.y_label = 'log10[F / s^-1]'
+            fig.with_x_axis = False
+            print(fig.show(legend=True) + '\n')
 
         # Close the data:
         h.close()
