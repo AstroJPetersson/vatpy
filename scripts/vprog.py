@@ -10,6 +10,7 @@ import sys
 import time
 import random
 import progressbar
+from tqdm import tqdm
 
 
 def get_max_time(sim_dir):
@@ -20,7 +21,7 @@ def get_max_time(sim_dir):
         for line in lines:
             match = pattern.search(line)
             if match:
-                time = match.group(1)
+                time = float(match.group(1))
                 break
 
     return time
@@ -34,38 +35,43 @@ def get_current_time(sim_dir):
         for line in lines[::-1]:
             match = pattern.search(line)
             if match:
-                time = match.group(1)
+                time = float(match.group(1))
                 break
 
     return time
 
 
 # -------------- Run script
-# Search for directories:
-dir_list = os.listdir(os.getcwd())
-
-SIM_MAX_TIME = {}
-for sim in dir_list:
-    SIM_MAX_TIME[sim] = get_max_time(sim)
-
-SIM_CURRENT_TIME = {}
-for sim in dir_list:
-    SIM_CURRENT_TIME[sim] = get_current_time(sim)
-
-
 def main() -> None:
-    with progressbar.MultiBar(fd=sys.stdout) as multibar:
-        for sim, total in SIM_MAX_TIME.items():
-            multibar[sim].max_value = total
+    # Search for directories:
+    dir_list = os.listdir(os.getcwd())
 
-        remaining = dict(SIM_CURRENT_TIME)
-        while remaining:
-            sim = random.choice(list(remaining))
-            multibar[sim].value = get_current_time(sim)
-            if multibar[sim].value >= multibar[sim].max_value:
-                multibar[sim].finish()
-                del remaining[sim]
-            time.sleep(0.01)
+    # Initialize progress bars
+    progress_bars = {}
+    for sim in dir_list:
+        max_time = get_max_time(sim)
+        progress_bars[sim] = tqdm(
+            total=max_time,
+            desc=sim,
+            unit="s",
+            position=len(progress_bars),
+            leave=True,
+            bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt}"
+        )
+
+    # Monitor progress
+    remaining = set(dir_list)
+    while remaining:
+        for sim in list(remaining):
+            current_time = get_current_time(sim)
+            progress_bars[sim].n = current_time
+            progress_bars[sim].refresh()
+
+            if current_time >= progress_bars[sim].total:
+                progress_bars[sim].close()
+                remaining.remove(sim)
+
+        time.sleep(1)  # Update every second
 
 
 if __name__ == '__main__':
